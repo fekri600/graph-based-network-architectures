@@ -339,7 +339,7 @@ def main():
     print_graph_statistics(G)
     
     # Visualize the network
-    #visualize_network(G)
+    visualize_network(G)
 
 if __name__ == "__main__":
     main()
