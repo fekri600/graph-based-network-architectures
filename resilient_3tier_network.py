@@ -21,6 +21,12 @@ CORE_PORT_CAPACITY = 24  # Max ports available on each Core Switch
 AGG_PORT_CAPACITY = 24   # Max ports available on each Aggregation Switch
 ACCESS_PORT_CAPACITY = 24 # Max ports available on each Access Switch
 
+# Node Attributes (Configurable)
+CORE_SWITCH_ATTRIBUTES = {'type': 'appliance', 'template': 'Open vSwitch'}
+AGG_SWITCH_ATTRIBUTES = {'type': 'appliance', 'template': 'Open vSwitch'}
+ACCESS_SWITCH_ATTRIBUTES = {'type': 'appliance', 'template': 'Open vSwitch'}
+ENDPOINT_ATTRIBUTES = {'type': 'appliance', 'template': 'VPCS'}
+
 def print_input_parameters():
     """Print all input parameters for verification"""
     print("=" * 60)
@@ -32,6 +38,11 @@ def print_input_parameters():
     print(f"CORE_PORT_CAPACITY: {CORE_PORT_CAPACITY}")
     print(f"AGG_PORT_CAPACITY: {AGG_PORT_CAPACITY}")
     print(f"ACCESS_PORT_CAPACITY: {ACCESS_PORT_CAPACITY}")
+    print("\nNODE ATTRIBUTES:")
+    print(f"  Core Switch Attributes: {CORE_SWITCH_ATTRIBUTES}")
+    print(f"  Aggregation Switch Attributes: {AGG_SWITCH_ATTRIBUTES}")
+    print(f"  Access Switch Attributes: {ACCESS_SWITCH_ATTRIBUTES}")
+    print(f"  Endpoint Attributes: {ENDPOINT_ATTRIBUTES}")
     print("=" * 60)
 
 def validate_constraints():
@@ -71,13 +82,15 @@ def create_3tier_network():
     # 1. Create Core Layer (2 switches)
     print("Creating Core Layer...")
     core_switches = ['csw0', 'csw1']
-    G.add_nodes_from(core_switches)
+    for csw in core_switches:
+        G.add_node(csw, **CORE_SWITCH_ATTRIBUTES)
     print(f"✓ Added core switches: {core_switches}")
     
     # 2. Create Aggregation Layer
     print("Creating Aggregation Layer...")
     aggregation_switches = [f'asw{i}' for i in range(NUM_ASW)]
-    G.add_nodes_from(aggregation_switches)
+    for asw in aggregation_switches:
+        G.add_node(asw, **AGG_SWITCH_ATTRIBUTES)
     print(f"✓ Added aggregation switches: {aggregation_switches}")
     
     # 3. Core-Aggregation Layer Redundancy (Northbound)
@@ -95,7 +108,8 @@ def create_3tier_network():
     # 4. Create Access Layer
     print("Creating Access Layer...")
     access_switches = [f'esw{i}' for i in range(NUM_ESW)]
-    G.add_nodes_from(access_switches)
+    for esw in access_switches:
+        G.add_node(esw, **ACCESS_SWITCH_ATTRIBUTES)
     print(f"✓ Added access switches: {access_switches}")
     
     # 5. Aggregation-Access Layer Redundancy (Southbound - CRITICAL LOGIC)
@@ -133,7 +147,7 @@ def create_3tier_network():
         # Create endpoints for this access switch
         for pc_index in range(NUM_PCS_PER_ESW):
             ep = f'ep{esw_index}_{pc_index}'
-            G.add_node(ep)
+            G.add_node(ep, **ENDPOINT_ATTRIBUTES)
             G.add_edge(esw, ep)
             endpoint_count += 1
             access_endpoint_connections += 1
@@ -290,6 +304,39 @@ def add_layer_labels(pos):
     plt.text(label_x, ep_y, 'Endpoint Layer', fontsize=14, fontweight='bold',
              ha='right', va='center', bbox=dict(boxstyle="round,pad=0.3", facecolor='moccasin', alpha=0.7))
 
+def print_nodes_with_attributes(G):
+    """Print all nodes with their attributes"""
+    print("\nNODES WITH ATTRIBUTES")
+    print("=" * 80)
+    
+    # Group nodes by type
+    core_nodes = [n for n in G.nodes() if n.startswith('csw')]
+    agg_nodes = [n for n in G.nodes() if n.startswith('asw')]
+    access_nodes = [n for n in G.nodes() if n.startswith('esw')]
+    endpoint_nodes = [n for n in G.nodes() if n.startswith('ep')]
+    
+    print("Core Switches:")
+    for node in sorted(core_nodes):
+        attrs = G.nodes[node]
+        print(f"  {node}: {attrs}")
+    
+    print("\nAggregation Switches:")
+    for node in sorted(agg_nodes):
+        attrs = G.nodes[node]
+        print(f"  {node}: {attrs}")
+    
+    print("\nAccess Switches:")
+    for node in sorted(access_nodes):
+        attrs = G.nodes[node]
+        print(f"  {node}: {attrs}")
+    
+    print("\nEndpoints:")
+    for node in sorted(endpoint_nodes):
+        attrs = G.nodes[node]
+        print(f"  {node}: {attrs}")
+    
+    print("=" * 80)
+
 def print_graph_statistics(G):
     """Print final graph statistics"""
     print("\nGRAPH STATISTICS")
@@ -332,14 +379,17 @@ def main():
     # Create the network
     G = create_3tier_network()
 
-    print(G.nodes())
-    print(G.edges())
+    print("just for checking",  G.nodes(data=True)['csw0'])
+    print(G.edges(data=True))
+    
+    # Print nodes with attributes
+    print_nodes_with_attributes(G)
     
     # Print graph statistics
     print_graph_statistics(G)
     
     # Visualize the network
-    visualize_network(G)
+    #visualize_network(G)
 
 if __name__ == "__main__":
     main()
