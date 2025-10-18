@@ -4,10 +4,13 @@ This repository contains a Python script for generating and visualizing resilien
 
 ## Features
 
-- **Resilient 3-Tier Architecture**: Core, Aggregation, and Access layers with full redundancy
+- **Multiple Network Architectures**: 3-Tier, Spine-Leaf, Fat-Tree, and Collapsed Core topologies
+- **IP Address Management (IPAM)**: Automated VLAN and IP address assignment with `IPAM_Manager`
+- **Resilient Design**: Full redundancy at each layer with N+1 or full mesh connectivity
 - **Configurable Parameters**: Easily modify network size and port capacities
 - **Constraint Validation**: Automatic validation of port capacity constraints
 - **Visual Network Representation**: Color-coded visualization with distinct node types
+- **Configuration Export**: Export network configurations to JSON and device-specific formats
 - **Comprehensive Statistics**: Detailed breakdown of nodes and connections
 
 ## Installation
@@ -55,6 +58,51 @@ All scripts will:
 3. Generate the network topology
 4. Print detailed statistics
 5. Display a visual graph of the network
+
+## IP Address Management (IPAM)
+
+The `IPAM_Manager` class provides automated IP address and VLAN assignment for all network topologies.
+
+### Using IPAM_Manager
+
+```python
+from resilient_3tier_network import create_3tier_network
+from ipam_manager import IPAM_Manager
+
+# Create network topology
+G = create_3tier_network()
+
+# Apply IPAM configuration
+ipam = IPAM_Manager(G)
+ipam.assign_network_attributes('3-tier')  # or 'spine-leaf', 'fat-tree'
+
+# Access the configured network
+print(G.nodes['asw0'])  # View switch configuration
+print(G.nodes['ep0_0'])  # View endpoint IP configuration
+```
+
+### IPAM Features
+
+- **Automated VLAN Assignment**: Assigns VLANs to switches and links automatically
+- **IP Address Allocation**: Assigns unique IP addresses from managed subnet pools
+- **Gateway Configuration**: Configures Interface VLANs (SVIs) on aggregation/spine switches
+- **Conflict-Free**: Ensures no IP address conflicts through systematic tracking
+- **Configuration Export**: Export to JSON and device-specific configuration formats
+
+### Running IPAM Examples
+
+```bash
+# Run basic demonstration
+python3 ipam_manager.py
+
+# Run comprehensive integration tests
+python3 test_ipam_integration.py
+
+# Run practical example with configuration export
+python3 example_ipam_usage.py
+```
+
+For detailed documentation, see [IPAM_MANAGER_README.md](IPAM_MANAGER_README.md).
 
 ## Network Architectures
 

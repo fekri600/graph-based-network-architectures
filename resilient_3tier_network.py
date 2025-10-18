@@ -9,6 +9,7 @@ with Core, Aggregation, and Access layers, including endpoint connections.
 import networkx as nx
 import matplotlib.pyplot as plt
 import logging
+from ipam_manager import IPAM_Manager
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
@@ -20,6 +21,37 @@ NUM_PCS_PER_ESW = 12      # Number of Endpoints connected to each Access Switch
 CORE_PORT_CAPACITY = 24  # Max ports available on each Core Switch
 AGG_PORT_CAPACITY = 24   # Max ports available on each Aggregation Switch
 ACCESS_PORT_CAPACITY = 24 # Max ports available on each Access Switch
+
+# IPAM Configuration
+APPLY_IPAM = True        # Enable/Disable IP Address Management
+VLAN_LIST = [10]  # List of VLANs to use
+                         # Need enough VLANs for: Core switches + Aggregation + Access + Endpoint groups
+                         # Leave as None to use default pool (10-199)
+                         # Examples: [10], [10, 20], [10, 20, 30, 40], [100, 200, 300]
+
+# Switch VLAN Configuration
+UNIQUE_SWITCH_VLANS = False     # If True, each switch gets its own management VLAN
+                                # If False, switches can share VLANs (uses fewer VLANs - great for single VLAN setups!)
+
+# Reserved IP Addresses (for SDN Controllers, Management Servers, etc.)
+RESERVED_IPS = {
+    10: ['10.10.0.2', '10.10.0.100'],  # Reserve .2 and .100 in VLAN 10
+    # 20: ['10.20.0.50'],                # Example: Reserve .50 in VLAN 20
+    # 100: ['10.100.0.10-10.100.0.20'], # Example: Reserve range .10-.20 in VLAN 100
+}
+# Format: {vlan_id: [list of IPs or IP ranges]}
+# Examples: '10.10.0.2', '10.10.0.10-10.10.0.20'
+# Set to {} or None to disable IP reservation
+
+# PC/Endpoint VLAN Distribution Configuration
+PC_VLAN_DISTRIBUTION = 'single'  # Options: 'single', 'equal', 'random'
+                                # 'single' - All PCs use one VLAN per aggregation switch
+                                # 'equal'  - Distribute PCs equally across specified endpoint VLANs
+                                # 'random' - Randomly assign PCs to endpoint VLANs
+ENDPOINT_VLANS = None           # VLANs to use for endpoint distribution (only for 'equal' and 'random')
+                                # These should be different from switch management VLANs
+                                # Note: Keep VLANs ≤ 255 for simple 10.X.0.0/24 subnet scheme
+                                # Set to None to auto-allocate from VLAN_LIST
 
 # Node Attributes (Configurable)
 CORE_SWITCH_ATTRIBUTES = {'type': 'appliance', 'template': 'Open vSwitch'}
@@ -38,6 +70,13 @@ def print_input_parameters():
     print(f"CORE_PORT_CAPACITY: {CORE_PORT_CAPACITY}")
     print(f"AGG_PORT_CAPACITY: {AGG_PORT_CAPACITY}")
     print(f"ACCESS_PORT_CAPACITY: {ACCESS_PORT_CAPACITY}")
+    print(f"\nIPAM Configuration:")
+    print(f"  APPLY_IPAM (Enable IP Address Management): {APPLY_IPAM}")
+    print(f"  VLAN_LIST (VLANs to use): {VLAN_LIST}")
+    print(f"  UNIQUE_SWITCH_VLANS: {UNIQUE_SWITCH_VLANS}")
+    print(f"  RESERVED_IPS: {RESERVED_IPS}")
+    print(f"  PC_VLAN_DISTRIBUTION: {PC_VLAN_DISTRIBUTION}")
+    print(f"  ENDPOINT_VLANS: {ENDPOINT_VLANS}")
     print("\nNODE ATTRIBUTES:")
     print(f"  Core Switch Attributes: {CORE_SWITCH_ATTRIBUTES}")
     print(f"  Aggregation Switch Attributes: {AGG_SWITCH_ATTRIBUTES}")
@@ -363,6 +402,93 @@ def print_graph_statistics(G):
     
     print("=" * 60)
 
+def print_ipam_summary(G):
+    """Print IPAM configuration summary"""
+    print("\nIPAM CONFIGURATION SUMMARY")
+    print("=" * 80)
+    
+    # Print Core Switch Information
+    print("\n📍 Core Switches:")
+    core_switches = sorted([n for n in G.nodes() if n.startswith('csw')])
+    for csw in core_switches:
+        attrs = G.nodes[csw]
+        if 'interface_vlan_ip' in attrs:
+            print(f"  {csw}:")
+            print(f"    Interface VLAN: {attrs.get('interface_vlan', 'N/A')}")
+            print(f"    Management IP: {attrs.get('interface_vlan_ip', 'N/A')}")
+            print(f"    VLANs Supported: {attrs.get('vlans_supported', [])}")
+    
+    # Print Aggregation Switch Gateways
+    print("\n📍 Aggregation Switches (Gateway Layer):")
+    agg_switches = sorted([n for n in G.nodes() if n.startswith('asw')])
+    for asw in agg_switches:
+        attrs = G.nodes[asw]
+        if 'interface_vlan_gateway' in attrs:
+            print(f"  {asw}:")
+            print(f"    Interface VLAN: {attrs.get('interface_vlan', 'N/A')}")
+            print(f"    Switch IP: {attrs.get('interface_vlan_ip', 'N/A')}")
+            print(f"    Virtual Gateway: {attrs.get('interface_vlan_gateway', 'N/A')} (for endpoints)")
+            print(f"    VLANs Supported: {attrs.get('vlans_supported', [])}")
+    
+    # Print Access Switch Information
+    print("\n📍 Access/Edge Switches:")
+    access_switches = sorted([n for n in G.nodes() if n.startswith('esw')])
+    for esw in access_switches:
+        attrs = G.nodes[esw]
+        if 'interface_vlan_ip' in attrs:
+            print(f"  {esw}:")
+            print(f"    Interface VLAN: {attrs.get('interface_vlan', 'N/A')}")
+            print(f"    Management IP: {attrs.get('interface_vlan_ip', 'N/A')}")
+            print(f"    VLANs Supported: {attrs.get('vlans_supported', [])}")
+    
+    # Print Sample Endpoint Configurations (first 5)
+    print("\n📍 Sample Endpoint Configurations (first 5):")
+    endpoints = sorted([n for n in G.nodes() if n.startswith('ep')])[:5]
+    for ep in endpoints:
+        attrs = G.nodes[ep]
+        if 'ip_address' in attrs:
+            print(f"  {ep}:")
+            print(f"    IP: {attrs['ip_address']} | Gateway: {attrs['default_gateway']} | VLAN: {attrs['vlan_id']}")
+    
+    # Print VLAN Summary
+    vlans_used = set()
+    for node in G.nodes():
+        if 'vlans_supported' in G.nodes[node]:
+            vlans_used.update(G.nodes[node]['vlans_supported'])
+    
+    print(f"\n📊 VLAN Summary:")
+    print(f"  Total VLANs Used: {len(vlans_used)}")
+    print(f"  VLAN IDs: {sorted(vlans_used)}")
+    
+    # Show reserved IPs if configured
+    if RESERVED_IPS:
+        print(f"\n📊 Reserved IP Addresses:")
+        for vlan_id in sorted(RESERVED_IPS.keys()):
+            if vlan_id in vlans_used:
+                ips = RESERVED_IPS[vlan_id]
+                print(f"  VLAN {vlan_id}: {', '.join(ips)}")
+    
+    # Count configured endpoints
+    endpoints_with_ip = [n for n in G.nodes() if 'ip_address' in G.nodes[n]]
+    print(f"\n📊 IP Assignment Summary:")
+    print(f"  Total Endpoints Configured: {len(endpoints_with_ip)}")
+    print(f"  IP Address Range: 10.{min(vlans_used)}.0.0/24 - 10.{max(vlans_used)}.0.0/24")
+    
+    # Show endpoint distribution across VLANs
+    print(f"\n📊 Endpoint VLAN Distribution:")
+    endpoint_vlan_count = {}
+    for node in G.nodes():
+        if 'vlan_id' in G.nodes[node]:
+            vlan_id = G.nodes[node]['vlan_id']
+            endpoint_vlan_count[vlan_id] = endpoint_vlan_count.get(vlan_id, 0) + 1
+    
+    for vlan_id in sorted(endpoint_vlan_count.keys()):
+        count = endpoint_vlan_count[vlan_id]
+        percentage = (count / len(endpoints_with_ip)) * 100 if endpoints_with_ip else 0
+        print(f"  VLAN {vlan_id}: {count} endpoints ({percentage:.1f}%)")
+    
+    print("=" * 80)
+
 def main():
     """Main function to orchestrate the network generation"""
     print("RESILIENT 3-TIER NETWORK TOPOLOGY GENERATOR")
@@ -378,18 +504,45 @@ def main():
     
     # Create the network
     G = create_3tier_network()
-
-    print("just for checking",  G.nodes(data=True)['csw0'])
-    print(G.edges(data=True))
     
-    # Print nodes with attributes
+    # Apply IPAM configuration if enabled
+    if APPLY_IPAM:
+        print("\n" + "=" * 60)
+        print("APPLYING IP ADDRESS MANAGEMENT (IPAM)")
+        print("=" * 60)
+        print(f"Using VLANs: {VLAN_LIST}")
+        print(f"Unique Switch VLANs: {UNIQUE_SWITCH_VLANS}")
+        if RESERVED_IPS:
+            print(f"Reserved IPs: {RESERVED_IPS}")
+        print(f"PC Distribution Strategy: {PC_VLAN_DISTRIBUTION}")
+        if PC_VLAN_DISTRIBUTION in ['equal', 'random']:
+            print(f"Endpoint VLANs: {ENDPOINT_VLANS}")
+        ipam = IPAM_Manager(G, vlan_list=VLAN_LIST, 
+                           pc_distribution=PC_VLAN_DISTRIBUTION,
+                           endpoint_vlans=ENDPOINT_VLANS,
+                           unique_switch_vlans=UNIQUE_SWITCH_VLANS,
+                           reserved_ips=RESERVED_IPS)
+        ipam.assign_network_attributes('3-tier')
+        print("✓ IPAM configuration applied successfully!")
+    
+    # Print nodes with attributes (shows IPAM attributes if applied)
     print_nodes_with_attributes(G)
     
     # Print graph statistics
     print_graph_statistics(G)
     
+    # Print IPAM summary if enabled
+    if APPLY_IPAM:
+        print_ipam_summary(G)
+    
     # Visualize the network
-    #visualize_network(G)
+    # visualize_network(G)
+    
+    print("\n" + "=" * 60)
+    print("✓ Network topology generation completed!")
+    if APPLY_IPAM:
+        print("✓ IP addresses and VLANs configured!")
+    print("=" * 60)
 
 if __name__ == "__main__":
     main()
